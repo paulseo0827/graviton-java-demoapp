@@ -1,5 +1,5 @@
 # Used by `deploy` target, sets AWS deployment defaults, override as required
-AWS_ACCOUNT_ID ?= 606386488902
+AWS_ACCOUNT_ID ?= XXXXXXXXXX
 AWS_REGION ?= ap-northeast-2
 AWS_AVAILABILITY_ZONES ?= $(AWS_REGION)a,$(AWS_REGION)b
 AWS_STACK_NAME ?= java-demoapp
