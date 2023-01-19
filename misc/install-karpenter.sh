@@ -1,6 +1,6 @@
 #!/bin/bash -xe
 
-CLUSTER_NAME=${EKS_CLUSTER}
+CLUSTER_NAME=graviton-workshop
 KARPENTER_VERSION=v0.18.1
 
 export HELM_EXPERIMENTAL_OCI=1
