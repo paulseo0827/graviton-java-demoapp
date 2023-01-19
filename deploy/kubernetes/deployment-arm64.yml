@@ -1,0 +1,31 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app/name: java-demoapp-arm64
+  name: java-demoapp-arm64
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app/name: java-demoapp-arm64
+  template:
+    metadata:
+      labels:
+        app/name: java-demoapp-arm64
+        app/part-of: java-demoapp
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - image: 606386488902.dkr.ecr.ap-northeast-2.amazonaws.com/java-demoapp:latest-aarch64
+          name: main
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"

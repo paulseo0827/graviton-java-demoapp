@@ -1,0 +1,34 @@
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: graviton-workshop
+  region: ap-northeast-2
+
+iam:
+  withOIDC: true
+
+managedNodeGroups:
+  - name: mng-arm
+    instanceType: m6g.xlarge
+    desiredCapacity: 2
+    labels:
+      app/name: java-demoapp-arm64
+      app/part-of: java-demoapp
+  - name: mng-x86
+    instanceType: m5.xlarge
+    desiredCapacity: 2
+    labels:
+      app/name: java-demoapp-x86
+      app/part-of: java-demoapp
+
+addons:
+- name: vpc-cni
+  attachPolicyARNs:
+    - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+- name: coredns
+  version: latest
+  configurationValues: "{\"replicaCount\":3}"
+- name: kube-proxy
+  version: latest

@@ -1,0 +1,654 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Graviton Containers Workshop - CICD Pipeline
+
+Parameters:
+  CodeCommitRepositoryName:
+    Type: String
+    Description: CodeCommit repository name (must exist already and contain the source files)
+    MinLength: 1
+    Default: "javawebapp"
+
+  ECRRepositoryName:
+    Type: String
+    Description: Repository name for ECR
+    MinLength: 1
+    Default: "javawebapp"
+
+Resources:
+  ArtifactStoreBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W35
+            reason: "S3 access logging is not required"
+          - id: W51
+            reason: "S3 bucket policy is not required"
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+        - Status: Enabled
+          ExpirationInDays: 1
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  X86ImageBuildPushLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+  ARM64ImageBuildPushLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+  X86ImageTestBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+  ARM64ImageTestBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+  ManifestImageBuildPushLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+  ECSDeploymentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+  
+  CloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: cloudformation.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AdministratorAccess
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: "Asterisks are required"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogsPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt ARM64ImageBuildPushLogGroup.Arn
+                  - !GetAtt X86ImageBuildPushLogGroup.Arn
+                  - !GetAtt ARM64ImageTestBuildLogGroup.Arn
+                  - !GetAtt X86ImageTestBuildLogGroup.Arn
+                  - !GetAtt ManifestImageBuildPushLogGroup.Arn
+              - Sid: CodeCommitPolicy
+                Effect: Allow
+                Action:
+                  - codecommit:GitPull
+                Resource:
+                  - !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepositoryName}"
+              - Sid: ECRPolicy
+                Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource:
+                  - !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ECRRepositoryName}"
+              - Sid: ECRAuthPolicy
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource:
+                  - "*"
+              - Sid: S3GetObjectPolicy
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub "${ArtifactStoreBucket.Arn}/*"
+              - Sid: S3PutObjectPolicy
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${ArtifactStoreBucket.Arn}/*"
+  
+  X86ImageBuildPushProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W32
+            reason: "No build output artifacts to encrypt"
+    Properties:
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName:
+            Ref: X86ImageBuildPushLogGroup
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: IMAGE_SUFFIX
+          Value: x86_64
+      Source:
+        BuildSpec: !Sub |
+            version: 0.2
+            phases:
+              pre_build:
+                on-failure: ABORT
+                commands:
+                  - "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+              build:
+                on-failure: ABORT
+                commands:
+                  - "make IMAGE_REPO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName} image push"
+        Type: CODECOMMIT
+        Location: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepositoryName}"
+
+  ARM64ImageBuildPushProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W32
+            reason: "No build output artifacts to encrypt"
+    Properties:
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName:
+            Ref: ARM64ImageBuildPushLogGroup
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: ARM_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-aarch64-standard:2.0"
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: IMAGE_SUFFIX
+          Value: aarch64
+      Source:
+        BuildSpec: !Sub |
+            version: 0.2
+            phases:
+              pre_build:
+                on-failure: ABORT
+                commands:
+                  - "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+              build:
+                on-failure: ABORT
+                commands:
+                  - "make IMAGE_REPO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName} image push"
+        Type: CODECOMMIT
+        Location: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepositoryName}"
+
+  X86ImageTestBuildProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W32
+            reason: "No build output artifacts to encrypt"
+    Properties:
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName:
+            Ref: X86ImageTestBuildLogGroup
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+        PrivilegedMode: true
+      Source:
+        BuildSpec: !Sub |
+            version: 0.2
+            phases:
+              pre_build:
+                on-failure: ABORT
+                commands:
+                  - "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+                  - "docker pull ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest-x86_64"
+              build:
+                on-failure: ABORT
+                commands:
+                  - "docker run --rm -d -p 8080:8080 ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest-x86_64"
+                  - "sleep 10"
+                  - "if [[ $(curl -LI 0.0.0.0:8080 -o /dev/null -w \'%{http_code}\n\' -s) != \"200\" ]]; then exit 1; fi"
+        Type: NO_SOURCE
+
+  ARM64ImageTestBuildProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W32
+            reason: "No build output artifacts to encrypt"
+    Properties:
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName:
+            Ref: ARM64ImageTestBuildLogGroup
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: ARM_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-aarch64-standard:2.0"
+        PrivilegedMode: true
+      Source:
+        BuildSpec: !Sub |
+            version: 0.2
+            phases:
+              pre_build:
+                on-failure: ABORT
+                commands:
+                  - "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+                  - "docker pull ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest-aarch64"
+              build:
+                on-failure: ABORT
+                commands:
+                  - "docker run --rm -d -p 8080:8080 ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest-aarch64"
+                  - "sleep 10"
+                  - "if [[ $(curl -LI 0.0.0.0:8080 -o /dev/null -w \'%{http_code}\n\' -s) != \"200\" ]]; then exit 1; fi"
+        Type: NO_SOURCE
+
+  ManifestImageBuildPushProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W32
+            reason: "No build output artifacts to encrypt"
+    Properties:
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName:
+            Ref: ManifestImageBuildPushLogGroup
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: IMAGE_SUFFIXES
+          Value: x86_64 aarch64
+      Source:
+        BuildSpec: !Sub |
+            version: 0.2
+            phases:
+              pre_build:
+                on-failure: ABORT
+                commands:
+                  - "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+              build:
+                on-failure: ABORT
+                commands:
+                  - "make IMAGE_REPO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName} multiarch-manifest"
+        Type: CODECOMMIT
+        Location: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepositoryName}"
+   
+  DeploymentRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: "Asterisks are required"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogsPolicy
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt ECSDeploymentLogGroup.Arn
+              - Sid: CodeCommitPolicy
+                Effect: Allow
+                Action:
+                  - codecommit:GitPull
+                Resource:
+                  - !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepositoryName}"
+              - Sid: CloudFormationPolicy1
+                Effect: Allow
+                Action:
+                - cloudformation:CreateChangeSet
+                - cloudformation:CreateStack
+                - cloudformation:UpdateStack
+                Resource:
+                - "*"
+                Condition:
+                  ArnEquals:
+                    cloudformation:RoleArn:
+                      Fn::GetAtt:
+                      - CloudFormationRole
+                      - Arn
+              - Sid: CloudFormationPolicy2                
+                Effect: Allow
+                Action:
+                - cloudformation:Describe*
+                - cloudformation:Get*
+                - cloudformation:ExecuteChangeSet
+                Resource:
+                - "*"
+              - Sid: CloudFormationPolicy3 
+                Effect: Allow
+                Action:
+                - iam:PassRole
+                Resource:
+                - !GetAtt CloudFormationRole.Arn
+              - Sid: S3GetObjectPolicy
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub "${ArtifactStoreBucket.Arn}/*"
+              - Sid: S3PutObjectPolicy
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${ArtifactStoreBucket.Arn}/*"
+
+  ECSDeploymentProject:
+    Type: AWS::CodeBuild::Project
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W32
+            reason: "No build output artifacts to encrypt"
+    Properties:
+      ServiceRole: !GetAtt DeploymentRole.Arn
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName:
+            Ref: ECSDeploymentLogGroup
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:4.0"
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: CLOUDFORMATION_ROLE_ARN
+          Value: !GetAtt CloudFormationRole.Arn
+      Source:
+        BuildSpec: !Sub |
+            version: 0.2
+            phases:
+              build:
+                on-failure: ABORT
+                commands:
+                  - "make deploy"
+        Type: CODECOMMIT
+        Location: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepositoryName}"
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: "Asterisks in the policy are required"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: AllowAccessToCodeCommit
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "codecommit:GetBranch"
+                  - "codecommit:GetCommit"
+                  - "codecommit:UploadArchive"
+                  - "codecommit:CancelUploadArchive"
+                  - "codecommit:GetUploadArchiveStatus"
+                Resource:
+                  - !Sub arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepositoryName}
+        - PolicyName: AllowAccessToArtifactBucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:GetObject"
+                Resource: !Sub "${ArtifactStoreBucket.Arn}/*"
+        - PolicyName: AllowCodeBuildAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                Resource:
+                  - !GetAtt X86ImageBuildPushProject.Arn
+                  - !GetAtt ARM64ImageBuildPushProject.Arn
+                  - !GetAtt X86ImageTestBuildProject.Arn
+                  - !GetAtt ARM64ImageTestBuildProject.Arn
+                  - !GetAtt ManifestImageBuildPushProject.Arn
+                  - !GetAtt ECSDeploymentProject.Arn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Location: !Ref ArtifactStoreBucket
+        Type: "S3"
+      RoleArn: !GetAtt PipelineRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: PullFromSourceRepo
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: "1"
+              Configuration:
+                BranchName: master
+                RepositoryName: !Ref CodeCommitRepositoryName
+                PollForSourceChanges: true
+              OutputArtifacts:
+                - Name: Source
+              RunOrder: 1
+        - Name: BuildAndPushImages
+          Actions:
+            - Name: BuildARM64Image
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName:
+                  Ref: ARM64ImageBuildPushProject
+              InputArtifacts:
+              - Name: Source
+              RunOrder: 2
+            - Name: BuildX86Image
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName:
+                  Ref: X86ImageBuildPushProject
+              InputArtifacts:
+              - Name: Source
+              RunOrder: 2
+        - Name: TestImages
+          Actions:
+          - Name: TestARM64Image
+            ActionTypeId:
+              Category: Build
+              Owner: AWS
+              Provider: CodeBuild
+              Version: '1'
+            Configuration:
+              ProjectName:
+                Ref: ARM64ImageTestBuildProject
+            InputArtifacts:
+            - Name: Source
+            RunOrder: 3
+          - Name: TestX86Image
+            ActionTypeId:
+              Category: Build
+              Owner: AWS
+              Provider: CodeBuild
+              Version: '1'
+            Configuration:
+              ProjectName:
+                Ref: X86ImageTestBuildProject
+            InputArtifacts:
+            - Name: Source
+            RunOrder: 3
+        - Name: MultiArchManifest
+          Actions:
+            - Name: MultiArchBuildAndPush
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName:
+                  Ref: ManifestImageBuildPushProject
+              InputArtifacts:
+                - Name: Source
+              RunOrder: 4
+        - Name: DeployImages
+          Actions:
+            - Name: DeployToECS
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName:
+                  Ref: ECSDeploymentProject
+              InputArtifacts:
+                - Name: Source
+              RunOrder: 5
+
+Outputs:
+  Pipeline:
+    Description: Pipeline name
+    Value:
+      Ref: Pipeline
+  ArtifactStoreBucket:
+    Description: CodePipeline artifact bucket name
+    Value:
+      Ref: ArtifactStoreBucket
+  X86ImageBuildPushLogGroup:
+    Description: x86 image build log group
+    Value:
+      Ref: X86ImageBuildPushLogGroup
+  ARM64ImageBuildPushLogGroup:
+    Description: arm64 image build log group
+    Value:
+      Ref: ARM64ImageBuildPushLogGroup
+  X86ImageTestBuildLogGroup:
+    Description: x86 image test log group
+    Value:
+      Ref: X86ImageTestBuildLogGroup
+  ARM64ImageTestBuildLogGroup:
+    Description: arm64 image test log group
+    Value:
+      Ref: ARM64ImageTestBuildLogGroup
+  ManifestImageBuildPushLogGroup:
+    Description: Manifest build log group
+    Value:
+      Ref: ManifestImageBuildPushLogGroup
+  ECSDeploymentLogGroup:
+    Description: ECS deployment log group
+    Value:
+      Ref: ECSDeploymentLogGroup

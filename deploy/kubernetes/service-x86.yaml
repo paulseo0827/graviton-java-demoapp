@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: java-demoapp
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: NodePort
+  selector:
+    app/name: java-demoapp-x86
+    # app/name: java-demoapp-arm64
+    # app/part-of: java-demoapp
