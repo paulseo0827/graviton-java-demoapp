@@ -1,5 +1,5 @@
-export LBC_VERSION="v2.5.1"
-export LBC_CHART_VERSION="1.5.2"
+export LBC_VERSION="v2.5.2"
+export LBC_CHART_VERSION="1.5.3"
 export ACCOUNT_ID="837641087863"
 export EKS_CLUSTER="graviton-workshop"
 
