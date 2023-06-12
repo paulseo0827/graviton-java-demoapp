@@ -1,6 +1,6 @@
 export LBC_VERSION="v2.5.2"
 export LBC_CHART_VERSION="1.5.3"
-export ACCOUNT_ID="837641087863"
+export ACCOUNT_ID="REPLACE_ACCOUNT_ID"
 export EKS_CLUSTER="graviton-workshop"
 
 curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
