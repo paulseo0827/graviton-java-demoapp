@@ -1,6 +1,6 @@
-export LBC_VERSION="v2.4.1"
-export LBC_CHART_VERSION="1.4.1"
-export ACCOUNT_ID="REPLACE_ACCOUNT_ID"
+export LBC_VERSION="v2.5.1"
+export LBC_CHART_VERSION="1.5.2"
+export ACCOUNT_ID="837641087863"
 export EKS_CLUSTER="graviton-workshop"
 
 curl -sSL https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
@@ -35,4 +35,3 @@ helm upgrade -i aws-load-balancer-controller \
 
 
 kubectl -n kube-system rollout status deployment aws-load-balancer-controller
-

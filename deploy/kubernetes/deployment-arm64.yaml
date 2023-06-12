@@ -19,7 +19,7 @@ spec:
       nodeSelector:
         kubernetes.io/arch: arm64
       containers:
-        - image: REPLACE_ACCOUNT_ID.dkr.ecr.ap-northeast-2.amazonaws.com/java-demoapp:latest-aarch64
+        - image: 837641087863.dkr.ecr.ap-northeast-2.amazonaws.com/java-demoapp:latest-aarch64
           name: main
           imagePullPolicy: Always
           ports:
