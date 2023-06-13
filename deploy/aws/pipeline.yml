@@ -347,7 +347,7 @@ Resources:
               build:
                 on-failure: ABORT
                 commands:
-                  - "make IMAGE_REPO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName} multiarch-manifest"
+                  - "make IMAGE_REPO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest multiarch-manifest"
         Type: CODECOMMIT
         Location: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepositoryName}"
    
