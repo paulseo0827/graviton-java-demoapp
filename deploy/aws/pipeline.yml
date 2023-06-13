@@ -570,7 +570,7 @@ Resources:
                 Provider: CodeCommit
                 Version: "1"
               Configuration:
-                BranchName: master
+                BranchName: main
                 RepositoryName: !Ref CodeCommitRepositoryName
                 PollForSourceChanges: true
               OutputArtifacts:
