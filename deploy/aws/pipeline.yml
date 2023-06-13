@@ -491,8 +491,8 @@ Resources:
               build:
                 on-failure: ABORT
                 commands:
-                  - "kubectl apply -f deploy/kubernetes/deployment-x86.yml"
-                  - "kubectl apply -f deploy/kubernetes/deployment-arm64.yml"
+                  - "kubectl apply -f deploy/kubernetes/deployment-x86.yaml"
+                  - "kubectl apply -f deploy/kubernetes/deployment-arm64.yaml"
         Type: CODECOMMIT
         Location: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepositoryName}"
 
