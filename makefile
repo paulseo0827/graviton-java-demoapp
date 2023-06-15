@@ -71,6 +71,9 @@ multiarch-manifest: ## 📤 Build and push multi-arch manifest to registry
 run:  ## 🏃 Run application in Docker container, exposing port 8080
 	docker run --rm -p 8080:8080 $(IMAGE_TAG_FULL)
 
+run-local:  ## 🏃 Run application in Docker container, exposing port 8080
+	docker run --rm -p 8080:8080 $(IMAGE_LOCAL)
+
 deploy: ## 🚀 Deploy to Amazon ECS
 	aws cloudformation deploy \
 		$(if $(CLOUDFORMATION_ROLE_ARN),--role-arn $(CLOUDFORMATION_ROLE_ARN),) \
