@@ -64,9 +64,9 @@ multiarch-push: ## 📤 Build and push multi-arch container image to registry
 	--push
 
 multiarch-manifest: ## 📤 Build and push multi-arch manifest to registry
-	docker manifest create $(IMAGE_TAG_FULL) \
-		$(foreach suffix,$(IMAGE_SUFFIXES),$(IMAGE_TAG_FULL)-$(suffix))
-	docker manifest push $(IMAGE_TAG_FULL)
+	docker manifest create $(IMAGE_ECR_TAG_FULL) \
+		$(foreach suffix,$(IMAGE_SUFFIXES),$(IMAGE_ECR_TAG_FULL)-$(suffix))
+	docker manifest push $(IMAGE_ECR_TAG_FULL)
 
 run:  ## 🏃 Run application in Docker container, exposing port 8080
 	docker run --rm -p 8080:8080 $(IMAGE_TAG_FULL)
